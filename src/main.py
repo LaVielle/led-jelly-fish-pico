@@ -1,8 +1,24 @@
-from machine import Pin
 import time
+from gammaCorrection import gammaCorrectRgb
+from neopixel import Neopixel
 
-pin = Pin(25, Pin.OUT)
+index = 0
+numpix = 10
+strip = Neopixel(numpix, 0, 0, "GRB")
 
-while True:
-    pin.toggle()
-    time.sleep_ms(500)
+strip.brightness(100)
+
+hue = 0
+while(True):
+    color = strip.colorHSV(hue, 255, 150)
+    strip.set_pixel(index, gammaCorrectRgb(color))
+    strip.show()
+    time.sleep_ms(100)
+
+    
+    hue += 550
+
+    if (index < numpix - 1):
+        index += 1
+    else:
+        index = 0

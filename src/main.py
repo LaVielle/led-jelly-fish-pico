@@ -1,3 +1,5 @@
+from math import floor
+from random import randint
 import time
 from gammaCorrection import gammaCorrectRgb, gammaCorrectSingleValue
 from neopixel import Neopixel
@@ -9,6 +11,8 @@ class Strip:
     def __init__(self, numPixels: int, pin: int, stateMachine: int):
         self.neopixel = Neopixel(numPixels, stateMachine, pin, "GRB")
         self.numPixels = numPixels
+        self.pixelOnIndex = 0
+        self.randomPixelBlinkCount = 0
         self.isAnimationEnabled = False
         self.isFadingIn = True
 
@@ -59,6 +63,20 @@ class Strip:
         
         return False
 
+    def calcRandomePixelBlinkCycleEnd(self):
+        if (self.randomPixelBlinkCount == 50):
+            return True
+        return False
+
+    def setPixelOnIndex(self, newPixelOnIndex: int):
+        self.pixelOnIndex = newPixelOnIndex
+    
+    def setHue(self, h: int):
+        self.hue = h
+
+    def setRandomPixelBlinkCount(self, c: int):
+        self.randomPixelBlinkCount = c
+
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
 
 
@@ -77,6 +95,9 @@ bodyStrip.setIsAnimationEnabled(True)
 
 MIN_BRIGHTNESS = 0
 MAX_BRIGHTNESS = 255
+
+MIN_HUE = 0
+MAX_HUE = 65535
 
 def iterateFullStripFade(isFadingIn: bool, brightness: int):
     newBrightness = brightness
@@ -98,8 +119,21 @@ def iterateFullStripFade(isFadingIn: bool, brightness: int):
 def iterateHue(h):
     return h + 50
 
-while(True):
+def iterateRandomPixelBlink(pixelOnIndex: int, numPixels: int, hue: int):
+    newPixel = pixelOnIndex
     
+    while(newPixel == pixelOnIndex):
+        newPixel = randint(0, numPixels - 1)
+
+    newHue = hue + randint(0, floor(MAX_HUE / 10))
+
+    print('newPixel', newPixel)
+    print('newHue', newHue)
+
+    return newPixel, newHue
+
+while(True):
+
     if (bodyStrip.isAnimationEnabled):
         newHue = iterateHue(bodyStrip.hue)
         animationResult = iterateFullStripFade(bodyStrip.isFadingIn, bodyStrip.brightness)
@@ -116,24 +150,102 @@ while(True):
             bodyStrip.setIsAnimationEnabled(False)
             armStrip.setIsAnimationEnabled(True)
 
+        time.sleep_ms(5)
 
+    # if (bodyStrip.isAnimationEnabled):
+    #     animationResult = iterateRandomPixelBlink(bodyStrip.pixelOnIndex, bodyStrip.numPixels, bodyStrip.hue)
+    #     newPixelOn = animationResult[0]
+    #     newHue = animationResult[1]
+
+    #     # Turn off prev pixel
+    #     bodyStrip.updatePixel(bodyStrip.pixelOnIndex, (0,0,0))
+
+    #     # Turn on next pixel
+    #     bodyStrip.updatePixel(newPixelOn, bodyStrip.colorHSV(newHue, 255, 255))
+    #     bodyStrip.setPixelOnIndex(newPixelOn)
+    #     bodyStrip.setHue(newHue)
+    #     bodyStrip.setRandomPixelBlinkCount(bodyStrip.randomPixelBlinkCount + 1)
+
+    #     isAnimationCycleEnded = bodyStrip.calcRandomePixelBlinkCycleEnd()
+
+    #     print('isAnimationCycleEnded', isAnimationCycleEnded)
+    #     print('armStrip.randomPixelBlinkCount', bodyStrip.randomPixelBlinkCount)
+        
+    #     if (isAnimationCycleEnded):
+    #         bodyStrip.setIsAnimationEnabled(False)
+    #         bodyStrip.setRandomPixelBlinkCount(0)
+    #         bodyStrip.updateFillHSV(0, 255, 0)
+    #         armStrip.setIsAnimationEnabled(True)
+
+    #     bodyStrip.show()
+
+    # Arm Strip Random Pixel Animation
     if (armStrip.isAnimationEnabled):
-        newHue = iterateHue(armStrip.hue)
-        animationResult = iterateFullStripFade(armStrip.isFadingIn, armStrip.brightness)
-        newBrightness = animationResult[0]
-        newIsFadingIn = animationResult[1]
+        animationResult = iterateRandomPixelBlink(armStrip.pixelOnIndex, armStrip.numPixels, armStrip.hue)
+        newPixelOn = animationResult[0]
+        newHue = animationResult[1]
 
-        armStrip.setIsFadingIn(newIsFadingIn)
-        armStrip.updateFillHSV(newHue, 255, newBrightness)
+        # Turn off prev pixel
+        armStrip.updatePixel(armStrip.pixelOnIndex, (0,0,0))
+
+        # Turn on next pixel
+        armStrip.updatePixel(newPixelOn, armStrip.colorHSV(newHue, 255, 255))
+        armStrip.setPixelOnIndex(newPixelOn)
+        armStrip.setHue(newHue)
+        armStrip.setRandomPixelBlinkCount(armStrip.randomPixelBlinkCount + 1)
+
+        isAnimationCycleEnded = armStrip.calcRandomePixelBlinkCycleEnd()
+
+        print('isAnimationCycleEnded', isAnimationCycleEnded)
+        print('armStrip.randomPixelBlinkCount', armStrip.randomPixelBlinkCount)
+        
+        if (isAnimationCycleEnded):
+            armStrip.setIsAnimationEnabled(False)
+            armStrip.setRandomPixelBlinkCount(0)
+            armStrip.updateFillHSV(0, 255, 0)
+            bodyStrip.setIsAnimationEnabled(True)
+
         armStrip.show()
 
-    isAnimationCycleEnded = armStrip.calculateAnimationCycleEnd()
+        time.sleep_ms(50)
 
-    if (isAnimationCycleEnded):
-        armStrip.setIsAnimationEnabled(False)
-        bodyStrip.setIsAnimationEnabled(True)
+
+# while(True):
+    
+#     if (bodyStrip.isAnimationEnabled):
+#         newHue = iterateHue(bodyStrip.hue)
+#         animationResult = iterateFullStripFade(bodyStrip.isFadingIn, bodyStrip.brightness)
+#         newBrightness = animationResult[0]
+#         newIsFadingIn = animationResult[1]
+
+#         bodyStrip.setIsFadingIn(newIsFadingIn)
+#         bodyStrip.updateFillHSV(newHue, 255, newBrightness)
+#         bodyStrip.show()
+
+#         isAnimationCycleEnded = bodyStrip.calculateAnimationCycleEnd()
+
+#         if (isAnimationCycleEnded):
+#             bodyStrip.setIsAnimationEnabled(False)
+#             armStrip.setIsAnimationEnabled(True)
+
+
+#     if (armStrip.isAnimationEnabled):
+#         newHue = iterateHue(armStrip.hue)
+#         animationResult = iterateFullStripFade(armStrip.isFadingIn, armStrip.brightness)
+#         newBrightness = animationResult[0]
+#         newIsFadingIn = animationResult[1]
+
+#         armStrip.setIsFadingIn(newIsFadingIn)
+#         armStrip.updateFillHSV(newHue, 255, newBrightness)
+#         armStrip.show()
+
+#     isAnimationCycleEnded = armStrip.calculateAnimationCycleEnd()
+
+#     if (isAnimationCycleEnded):
+#         armStrip.setIsAnimationEnabled(False)
+#         bodyStrip.setIsAnimationEnabled(True)
         
 
-    time.sleep_ms(5)
+#     time.sleep_ms(5)
 
-    led.toggle()
+#     led.toggle()

@@ -25,6 +25,14 @@ def distanceBetweenFloats(index1: float, index2: float):
 from machine import Pin
 led = Pin(25, Pin.OUT)
 
+ANIMATIONS = [
+    0, # swoosh
+    1, # randomBlink
+    2 # breath
+]
+MIN_ANIMATION_ITERATIONS = 2
+MAX_ANIMATION_ITERATIONS = 100
+
 class Strip:
     def __init__(self, numPixels: int, pin: int, stateMachine: int):
         self.neopixel = Neopixel(numPixels, stateMachine, pin, "GRB")
@@ -34,12 +42,16 @@ class Strip:
         self.isAnimationEnabled = False
         self.isFadingIn = True
         
-        self.swooshOffset = 5
+        self.swooshOffset = floor(numPixels / 3)
         self.adjSwooshIndex = -self.swooshOffset
 
         self.hue = 0
         self.sat = 255
         self.brightness = 0
+
+        self.animationType = randint(0, len(ANIMATIONS))
+        self.targetAnimationIterations = randint(MIN_ANIMATION_ITERATIONS, MAX_ANIMATION_ITERATIONS)
+        self.animationIterations = 0
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # We should only use these methods to update the neopixels.
@@ -77,21 +89,36 @@ class Strip:
     def setIsFadingIn(self, isFadingIn: bool):
         self.isFadingIn = isFadingIn
 
-    def calculateAnimationCycleEnd(self):
-        if (self.isAnimationEnabled):
-            if (self.isFadingIn == False and self.brightness == 0):
-                return True
-        
-        return False
+    def calculateResetAnimationIteration(self):
+        if (self.animationIterations == self.targetAnimationIterations):
+            newAnimationType = randint(0, len(ANIMATIONS))
+
+            # ensure newAnimationType is not same as current animationType
+            while (newAnimationType == self.animationType):
+                newAnimationType = randint(0, len(ANIMATIONS))
+            
+            self.animationType = newAnimationType
+
+            self.targetAnimationIterations = randint(MIN_ANIMATION_ITERATIONS, MAX_ANIMATION_ITERATIONS)
+            self.animationIterations = 0
 
     def calcRandomPixelBlinkCycleEnd(self):
         if (self.randomPixelBlinkCount == 50):
+            self.calculateResetAnimationIteration()
             return True
         return False
 
     def calculateSwooshAnimationCycleEnd(self):
         if (self.adjSwooshIndex >= self.numPixels + self.swooshOffset):
+            self.calculateResetAnimationIteration()
             return True
+        return False
+
+    def calculateBreathCycleEnd(self):
+        if (self.isAnimationEnabled):
+            if (self.isFadingIn == False and self.brightness == 0):
+                self.calculateResetAnimationIteration()
+                return True
         return False
 
     def setPixelOnIndex(self, newPixelOnIndex: int):
@@ -108,9 +135,80 @@ class Strip:
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
+    def animateSwoosh(self, onAnimationEnd):
+        for ledIndex in range(self.numPixels):
+            distanceFromSwooshIndex = abs(distanceBetweenFloats(self.adjSwooshIndex, ledIndex))
+            adjBrightness = max(
+                floor(translate(distanceFromSwooshIndex, 0, self.swooshOffset, 255, 0)),
+                0
+            )
 
-bodyStrip = Strip(10, 0, 0)
-armStrip = Strip(5, 1, 1)
+            newHue = self.hue + 10
+            self.setHue(newHue)
+
+            adjColor = self.colorHSV(newHue, 255, adjBrightness)
+            self.updatePixel(ledIndex, adjColor)
+        self.show()
+
+        newSwooshIndex = iterateSwooshIndex(self.adjSwooshIndex)
+        self.setSwooshIndex(newSwooshIndex)
+
+        isAnimationCycleEnded = self.calculateSwooshAnimationCycleEnd()
+
+        if (isAnimationCycleEnded):
+            self.setSwooshIndex(-self.swooshOffset)
+            self.setIsAnimationEnabled(False)
+            onAnimationEnd()
+
+        time.sleep_ms(5)
+    
+    def animateRandomBlink(self, onAnimationEnd):
+        animationResult = iterateRandomPixelBlink(self.pixelOnIndex, self.numPixels, self.hue)
+        newPixelOn = animationResult[0]
+        newHue = animationResult[1]
+
+        # Turn off prev pixel
+        self.updatePixel(self.pixelOnIndex, (0,0,0))
+
+        # Turn on next pixel
+        self.updatePixel(newPixelOn, self.colorHSV(newHue, 255, 255))
+        self.setPixelOnIndex(newPixelOn)
+        self.setHue(newHue)
+        self.setRandomPixelBlinkCount(self.randomPixelBlinkCount + 1)
+
+        isAnimationCycleEnded = self.calcRandomPixelBlinkCycleEnd()
+        
+        if (isAnimationCycleEnded):
+            self.setIsAnimationEnabled(False)
+            self.setRandomPixelBlinkCount(0)
+            self.updateFillHSV(0, 255, 0)
+            onAnimationEnd()
+
+        self.show()
+
+        time.sleep_ms(50)
+
+    def animateBreath(self, onAnimationEnd):
+        newHue = iterateHue(self.hue, 20)
+        animationResult = iterateFullStripFade(self.isFadingIn, self.brightness)
+        newBrightness = animationResult[0]
+        newIsFadingIn = animationResult[1]
+
+        self.setIsFadingIn(newIsFadingIn)
+        self.updateFillHSV(newHue, 255, newBrightness)
+        self.show()
+
+        isAnimationCycleEnded = self.calculateBreathCycleEnd()
+
+        if (isAnimationCycleEnded):
+            self.setIsAnimationEnabled(False)
+            onAnimationEnd()
+
+        time.sleep_ms(30)
+
+
+bodyStrip = Strip(15, 0, 0)
+armStrip = Strip(10, 1, 1)
 
 # Set initial brightness to max
 bodyStrip.udpateBrightness(255)
@@ -142,8 +240,8 @@ def iterateFullStripFade(isFadingIn: bool, brightness: int):
     
     return newBrightness, newIsFadingIn
 
-def iterateHue(h):
-    return h + 50
+def iterateHue(h, increment: int = 50):
+    return h + increment
 
 def iterateRandomPixelBlink(pixelOnIndex: int, numPixels: int, hue: int):
     newPixel = pixelOnIndex
@@ -166,146 +264,12 @@ def iterateSwooshIndex(smooshIndex: float):
 while(True):
 
     if (bodyStrip.isAnimationEnabled):
+        bodyStrip.animateSwoosh(lambda: armStrip.setIsAnimationEnabled(True))
+        # bodyStrip.animateBreath(lambda: armStrip.setIsAnimationEnabled(True))
+        # bodyStrip.animateRandomBlink(lambda: armStrip.setIsAnimationEnabled(True))
 
 
-        for ledIndex in range(bodyStrip.numPixels):
-            distanceFromSwooshIndex = abs(distanceBetweenFloats(bodyStrip.adjSwooshIndex, ledIndex))
-            adjBrightness = max(
-                floor(translate(distanceFromSwooshIndex, 0, bodyStrip.swooshOffset, 255, 0)),
-                0
-            )
-
-            newHue = bodyStrip.hue + 10
-            bodyStrip.setHue(newHue)
-
-            adjColor = bodyStrip.colorHSV(newHue, 255, adjBrightness)
-            bodyStrip.updatePixel(ledIndex, adjColor)
-        bodyStrip.show()
-
-        newSwooshIndex = iterateSwooshIndex(bodyStrip.adjSwooshIndex)
-        bodyStrip.setSwooshIndex(newSwooshIndex)
-
-        isAnimationCycleEnded = bodyStrip.calculateSwooshAnimationCycleEnd()
-
-        if (isAnimationCycleEnded):
-            bodyStrip.setSwooshIndex(-bodyStrip.swooshOffset)
-            bodyStrip.setIsAnimationEnabled(False)
-            armStrip.setIsAnimationEnabled(True)
-
-        time.sleep_ms(5)
-
-    # if (bodyStrip.isAnimationEnabled):
-    #     newHue = iterateHue(bodyStrip.hue)
-    #     animationResult = iterateFullStripFade(bodyStrip.isFadingIn, bodyStrip.brightness)
-    #     newBrightness = animationResult[0]
-    #     newIsFadingIn = animationResult[1]
-
-    #     bodyStrip.setIsFadingIn(newIsFadingIn)
-    #     bodyStrip.updateFillHSV(newHue, 255, newBrightness)
-    #     bodyStrip.show()
-
-    #     isAnimationCycleEnded = bodyStrip.calculateAnimationCycleEnd()
-
-    #     if (isAnimationCycleEnded):
-    #         bodyStrip.setIsAnimationEnabled(False)
-    #         armStrip.setIsAnimationEnabled(True)
-
-    #     time.sleep_ms(5)
-
-
-
-
-    # if (bodyStrip.isAnimationEnabled):
-    #     animationResult = iterateRandomPixelBlink(bodyStrip.pixelOnIndex, bodyStrip.numPixels, bodyStrip.hue)
-    #     newPixelOn = animationResult[0]
-    #     newHue = animationResult[1]
-
-    #     # Turn off prev pixel
-    #     bodyStrip.updatePixel(bodyStrip.pixelOnIndex, (0,0,0))
-
-    #     # Turn on next pixel
-    #     bodyStrip.updatePixel(newPixelOn, bodyStrip.colorHSV(newHue, 255, 255))
-    #     bodyStrip.setPixelOnIndex(newPixelOn)
-    #     bodyStrip.setHue(newHue)
-    #     bodyStrip.setRandomPixelBlinkCount(bodyStrip.randomPixelBlinkCount + 1)
-
-    #     isAnimationCycleEnded = bodyStrip.calcRandomPixelBlinkCycleEnd()
-
-    #     print('isAnimationCycleEnded', isAnimationCycleEnded)
-    #     print('armStrip.randomPixelBlinkCount', bodyStrip.randomPixelBlinkCount)
-        
-    #     if (isAnimationCycleEnded):
-    #         bodyStrip.setIsAnimationEnabled(False)
-    #         bodyStrip.setRandomPixelBlinkCount(0)
-    #         bodyStrip.updateFillHSV(0, 255, 0)
-    #         armStrip.setIsAnimationEnabled(True)
-
-    #     bodyStrip.show()
-
-    # Arm Strip Random Pixel Animation
     if (armStrip.isAnimationEnabled):
-        animationResult = iterateRandomPixelBlink(armStrip.pixelOnIndex, armStrip.numPixels, armStrip.hue)
-        newPixelOn = animationResult[0]
-        newHue = animationResult[1]
-
-        # Turn off prev pixel
-        armStrip.updatePixel(armStrip.pixelOnIndex, (0,0,0))
-
-        # Turn on next pixel
-        armStrip.updatePixel(newPixelOn, armStrip.colorHSV(newHue, 255, 255))
-        armStrip.setPixelOnIndex(newPixelOn)
-        armStrip.setHue(newHue)
-        armStrip.setRandomPixelBlinkCount(armStrip.randomPixelBlinkCount + 1)
-
-        isAnimationCycleEnded = armStrip.calcRandomPixelBlinkCycleEnd()
-        
-        if (isAnimationCycleEnded):
-            armStrip.setIsAnimationEnabled(False)
-            armStrip.setRandomPixelBlinkCount(0)
-            armStrip.updateFillHSV(0, 255, 0)
-            bodyStrip.setIsAnimationEnabled(True)
-
-        armStrip.show()
-
-        time.sleep_ms(50)
-
-
-# while(True):
-    
-#     if (bodyStrip.isAnimationEnabled):
-#         newHue = iterateHue(bodyStrip.hue)
-#         animationResult = iterateFullStripFade(bodyStrip.isFadingIn, bodyStrip.brightness)
-#         newBrightness = animationResult[0]
-#         newIsFadingIn = animationResult[1]
-
-#         bodyStrip.setIsFadingIn(newIsFadingIn)
-#         bodyStrip.updateFillHSV(newHue, 255, newBrightness)
-#         bodyStrip.show()
-
-#         isAnimationCycleEnded = bodyStrip.calculateAnimationCycleEnd()
-
-#         if (isAnimationCycleEnded):
-#             bodyStrip.setIsAnimationEnabled(False)
-#             armStrip.setIsAnimationEnabled(True)
-
-
-#     if (armStrip.isAnimationEnabled):
-#         newHue = iterateHue(armStrip.hue)
-#         animationResult = iterateFullStripFade(armStrip.isFadingIn, armStrip.brightness)
-#         newBrightness = animationResult[0]
-#         newIsFadingIn = animationResult[1]
-
-#         armStrip.setIsFadingIn(newIsFadingIn)
-#         armStrip.updateFillHSV(newHue, 255, newBrightness)
-#         armStrip.show()
-
-#     isAnimationCycleEnded = armStrip.calculateAnimationCycleEnd()
-
-#     if (isAnimationCycleEnded):
-#         armStrip.setIsAnimationEnabled(False)
-#         bodyStrip.setIsAnimationEnabled(True)
-        
-
-#     time.sleep_ms(5)
-
-#     led.toggle()
+        # armStrip.animateSwoosh(lambda: bodyStrip.setIsAnimationEnabled(True))
+        armStrip.animateBreath(lambda: bodyStrip.setIsAnimationEnabled(True))
+        # armStrip.animateRandomBlink(lambda: bodyStrip.setIsAnimationEnabled(True))

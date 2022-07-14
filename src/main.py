@@ -1,5 +1,5 @@
 from math import floor
-from random import randint
+from random import randint, random
 import time
 from gammaCorrection import gammaCorrectRgb, gammaCorrectSingleValue
 from neopixel import Neopixel
@@ -27,8 +27,13 @@ led = Pin(25, Pin.OUT)
 
 ANIMATIONS = [
     0, # swoosh
-    1, # randomBlink
-    2 # breath
+    1, # rbreath
+    2 # randomBlink
+]
+ANIMATION_PROBABILITIES = [
+    0.45, # swoosh
+    0.45, # rbreath
+    0.1 # randomBlink
 ]
 MIN_ANIMATION_ITERATIONS = 2
 MAX_ANIMATION_ITERATIONS = 100
@@ -49,7 +54,7 @@ class Strip:
         self.sat = 255
         self.brightness = 0
 
-        self.animationType = randint(0, len(ANIMATIONS))
+        self.animationType = self.calculateNextAnimationType()
         self.targetAnimationIterations = randint(MIN_ANIMATION_ITERATIONS, MAX_ANIMATION_ITERATIONS)
         self.animationIterations = 0
 
@@ -89,18 +94,29 @@ class Strip:
     def setIsFadingIn(self, isFadingIn: bool):
         self.isFadingIn = isFadingIn
 
+    def calculateNextAnimationType(self):
+        seed = random()
+        if (seed < 0.45):
+            return 0
+        if (seed < 0.90):
+            return 1
+        if (seed < 0.9):
+            return 2 
+
     def calculateResetAnimationIteration(self):
         if (self.animationIterations == self.targetAnimationIterations):
-            newAnimationType = randint(0, len(ANIMATIONS))
+            newAnimationType = self.calculateNextAnimationType()
 
             # ensure newAnimationType is not same as current animationType
             while (newAnimationType == self.animationType):
-                newAnimationType = randint(0, len(ANIMATIONS))
+                newAnimationType = self.calculateNextAnimationType()
             
             self.animationType = newAnimationType
 
             self.targetAnimationIterations = randint(MIN_ANIMATION_ITERATIONS, MAX_ANIMATION_ITERATIONS)
             self.animationIterations = 0
+        else:
+            self.animationIterations += 1
 
     def calcRandomPixelBlinkCycleEnd(self):
         if (self.randomPixelBlinkCount == 50):
@@ -206,6 +222,13 @@ class Strip:
 
         time.sleep_ms(30)
 
+    def animate(self, onAnimationEnd):
+        if (self.animationType == 0):
+            return self.animateSwoosh(onAnimationEnd)
+        if (self.animationType == 1):
+            return self.animateBreath(onAnimationEnd)
+        if (self.animationType == 2):
+            return self.animateRandomBlink(onAnimationEnd)
 
 bodyStrip = Strip(15, 0, 0)
 armStrip = Strip(10, 1, 1)
@@ -251,9 +274,6 @@ def iterateRandomPixelBlink(pixelOnIndex: int, numPixels: int, hue: int):
 
     newHue = hue + randint(0, floor(MAX_HUE / 10))
 
-    print('newPixel', newPixel)
-    print('newHue', newHue)
-
     return newPixel, newHue
 
 def iterateSwooshIndex(smooshIndex: float):
@@ -264,12 +284,8 @@ def iterateSwooshIndex(smooshIndex: float):
 while(True):
 
     if (bodyStrip.isAnimationEnabled):
-        bodyStrip.animateSwoosh(lambda: armStrip.setIsAnimationEnabled(True))
-        # bodyStrip.animateBreath(lambda: armStrip.setIsAnimationEnabled(True))
-        # bodyStrip.animateRandomBlink(lambda: armStrip.setIsAnimationEnabled(True))
+        bodyStrip.animate(lambda: armStrip.setIsAnimationEnabled(True))
 
 
     if (armStrip.isAnimationEnabled):
-        # armStrip.animateSwoosh(lambda: bodyStrip.setIsAnimationEnabled(True))
-        armStrip.animateBreath(lambda: bodyStrip.setIsAnimationEnabled(True))
-        # armStrip.animateRandomBlink(lambda: bodyStrip.setIsAnimationEnabled(True))
+        armStrip.animate(lambda: bodyStrip.setIsAnimationEnabled(True))
